@@ -1294,6 +1294,11 @@ mark.hl{
 .pub-step.done i{background:rgba(76,185,68,.16); color:#3D9A36;}
 .pub-step.err{color:var(--danger,#C84632);}
 .pub-step.err i{background:rgba(200,70,50,.14); color:var(--danger,#C84632);}
+.pub-t{
+  margin-inline-start:auto; font-family:var(--font-mono); font-size:10.5px;
+  color:var(--ink-faint); font-weight:500; flex:none;
+}
+.pub-step.done .pub-t{color:#3D9A36;}
 .pub-note{
   margin-top:12px; padding:12px; border-radius:12px; font-size:12.3px; line-height:1.9;
   background:var(--teal-pale,#E8F3F0); color:var(--teal,#12564E);
@@ -3196,7 +3201,7 @@ function closeDrawer(){
 }
 
 /* رقم البناء — يظهر في "عن التطبيق" عشان تتأكد أي نسخة شغّالة */
-const APP_BUILD = 'v12 · 2026-07-26';
+const APP_BUILD = 'v15 · 2026-07-26';
 
 /* ═══════════════════════════════════════════════════════════════
    PUB — نشر التحديث مباشرة من التطبيق إلى GitHub
@@ -3256,6 +3261,24 @@ const PUB = {
     if(opts && opts.body) h['Content-Type'] = 'application/json';
     return await fetch(url, Object.assign({ headers: h }, opts || {}));
   },
+  /* الـ sha من شجرة المستودع — رد بحجم كيلوبايت بدل تنزيل الملف كله */
+  async sha(path, c){
+    const url = 'https://api.github.com/repos/' + c.owner + '/' + c.repo + '/git/trees/main?t=' + Date.now();
+    const r = await fetch(url, { headers: {
+      'Authorization': 'Bearer ' + c.tok,
+      'Accept': 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28'
+    }});
+    if(r.status === 401) throw new Error('التوكن غير صالح أو منتهي');
+    if(r.status === 403) throw new Error('صلاحية التوكن ناقصة (Contents: Read and write)');
+    if(r.status === 404) throw new Error('المستودع مش موجود — راجع الاسم');
+    if(!r.ok) throw new Error('خطأ ' + r.status + ' عند قراءة الشجرة');
+    const t = await r.json();
+    const f = (t.tree || []).find(x => x.path === path);
+    if(!f) throw new Error(path + ' مش موجود في المستودع');
+    return f.sha;
+  },
+
   async get(path, c){
     const r = await this.api(path + '?ref=main&t=' + Date.now(), c);
     if(r.status === 404) return null;
@@ -3307,14 +3330,25 @@ const PUB = {
 
     try{
       let st = ui.step('بتأكد من التوكن…');
-      const swFile = await this.get('sw.js', c);
-      if(!swFile) throw new Error('sw.js مش موجود في المستودع');
+      const shaIdx = await this.sha('index.html', c);
+      const shaSw  = await this.sha('sw.js', c);
       st.ok('التوكن شغّال');
 
+      /* المحتوى من الموقع نفسه — نص عادي، أخف بكتير من تنزيله مرمّزًا */
       st = ui.step('بنزّل النسخة الحالية…');
-      const idx = await this.get('index.html', c);
-      if(!idx) throw new Error('index.html مش موجود في المستودع');
-      st.ok('اتنزّلت');
+      let baseHtml = '';
+      try{
+        const r = await fetch('./index.html?pub=' + Date.now(), { cache: 'no-store' });
+        if(!r.ok) throw new Error('HTTP ' + r.status);
+        baseHtml = await r.text();
+      }catch(e){
+        /* احتياطي: من الـ API */
+        const idxFile = await this.get('index.html', c);
+        if(!idxFile || !idxFile.content) throw new Error('تعذّر تنزيل النسخة الحالية');
+        baseHtml = this.unb64(idxFile.content);
+      }
+      if(!/<script id="embedded-data"/.test(baseHtml)) throw new Error('الملف المنزّل مش نسخة صالحة');
+      st.ok((baseHtml.length/1024).toFixed(0) + ' KB');
 
       /* مهلة قصيرة عشان الواجهة ترسم قبل الشغل التقيل */
       st = ui.step('بحقن البيانات…');
@@ -3322,7 +3356,7 @@ const PUB = {
 
       let html;
       try{
-        html = this.unb64(idx.content);
+        html = baseHtml;
         const cnt = DB.items.length;
         const json = JSON.stringify(DB.items.map(stripCache)).replace(/</g, '\\u003c');
 
@@ -3339,14 +3373,16 @@ const PUB = {
       }
 
       st = ui.step('برفع التطبيق…');
-      await this.put('index.html', c, html, idx.sha, 'تحديث البيانات — ' + ver);
+      await this.put('index.html', c, html, shaIdx, 'تحديث البيانات — ' + ver);
       st.ok('التطبيق اترفع');
 
       st = ui.step('بحدّث نسخة التخزين…');
+      const swFile = await this.get('sw.js', c);
+      if(!swFile || !swFile.content) throw new Error('تعذّر قراءة sw.js');
       let sw = this.unb64(swFile.content);
       if(!/const VERSION = '[^']*'/.test(sw)) throw new Error('مالقيتش VERSION في sw.js');
       sw = sw.replace(/const VERSION = '[^']*'/, "const VERSION = '" + ver + "'");
-      await this.put('sw.js', c, sw, swFile.sha, 'رفع الإصدار — ' + ver);
+      await this.put('sw.js', c, sw, shaSw, 'رفع الإصدار — ' + ver);
       st.ok('التحديث هيوصل للموظفين');
 
       cleanup();
@@ -3375,15 +3411,34 @@ const PUB = {
     document.getElementById('pubClose').style.display = 'none';
     ov.classList.add('open');
 
+    const LOG = [];
+    PUB._log = LOG;
+    const T0 = Date.now();
+
     return {
       step(txt){
+        const t0 = Date.now();
         const d = document.createElement('div');
         d.className = 'pub-step run';
-        d.innerHTML = '<i>•</i><span>' + txt + '</span>';
+        const i = document.createElement('i'); i.textContent = '•';
+        const sp = document.createElement('span'); sp.textContent = txt;
+        const tm = document.createElement('b'); tm.className = 'pub-t'; tm.textContent = '…';
+        d.appendChild(i); d.appendChild(sp); d.appendChild(tm);
         box.appendChild(d);
+        LOG.push('[' + ((t0-T0)/1000).toFixed(1) + 's] ▶ ' + txt);
+
+        /* عدّاد حيّ — لو الرقم بيزيد يبقى شغّال مش معلّق */
+        const tick = setInterval(()=>{ tm.textContent = ((Date.now()-t0)/1000).toFixed(0) + 'ث'; }, 500);
         return {
-          ok(t){ d.className='pub-step done'; d.querySelector('i').textContent='✓';
-                 if(t) d.querySelector('span').textContent = t; },
+          ok(t){
+            clearInterval(tick);
+            const ms = Date.now() - t0;
+            d.className = 'pub-step done'; i.textContent = '✓';
+            if(t) sp.textContent = t;
+            tm.textContent = (ms/1000).toFixed(1) + 'ث';
+            LOG.push('[' + ((Date.now()-T0)/1000).toFixed(1) + 's] ✓ ' + (t||txt) + ' (' + ms + 'ms)');
+          },
+          stop(){ clearInterval(tick); }
         };
       },
       done(ver){
@@ -3398,14 +3453,37 @@ const PUB = {
       },
       fail(msg){
         try{
+          LOG.push('[' + ((Date.now()-T0)/1000).toFixed(1) + 's] ✕ ' + msg);
           const t = document.getElementById('pubTitle');
           if(t) t.textContent = '❌ فشل النشر';
+
           const d = document.createElement('div');
           d.className = 'pub-step err';
           const i = document.createElement('i'); i.textContent = '✕';
           const sp = document.createElement('span'); sp.textContent = String(msg);
           d.appendChild(i); d.appendChild(sp);
           box.appendChild(d);
+
+          /* زرار نسخ التفاصيل — عشان تبعتها وتتشخّص بدقة */
+          const cp = document.createElement('button');
+          cp.className = 'btn btn-outline';
+          cp.style.cssText = 'width:100%;margin-top:12px;font-size:12.5px;padding:9px';
+          cp.textContent = 'نسخ تفاصيل الخطأ';
+          cp.addEventListener('click', ()=>{
+            const txt = 'PUBLISH LOG\n' + LOG.join('\n')
+                      + '\nUA: ' + navigator.userAgent
+                      + '\nitems: ' + (typeof DB !== 'undefined' ? DB.items.length : '?');
+            try{
+              navigator.clipboard.writeText(txt);
+              cp.textContent = 'اتنسخ ✓';
+            }catch(e){
+              const ta = document.createElement('textarea');
+              ta.value = txt; ta.style.cssText='width:100%;height:120px;font-size:11px;margin-top:8px';
+              box.appendChild(ta); ta.select();
+            }
+          });
+          box.appendChild(cp);
+
           const cl = document.getElementById('pubClose');
           if(cl) cl.style.display = '';
         }catch(e){ alert('فشل النشر: ' + msg); }
@@ -4447,7 +4525,8 @@ const Welcome = {
   paintCount(){
     const meta = document.getElementById('welMetaCount');
     if(!meta) return;
-    const c = (window.DB && DB.items && DB.items.length) ? DB.items.length : 0;
+    /* DB معرّفة بـ const فمش موجودة على window — لازم فحص مباشر */
+    const c = (typeof DB !== 'undefined' && DB.items && DB.items.length) ? DB.items.length : 0;
     if(c > 0) meta.textContent = c;
   },
 
@@ -5162,8 +5241,7 @@ function buildUpdatedHTML(){
   return '<!DOCTYPE html>\n' + root.outerHTML;
 }
 
-async /* زرار التصدير في الهيدر اتشال — النشر بقى من الإعدادات مباشرة */
-function exportUpdatedFile(){}
+/* التصدير اليدوي اتشال — النشر بقى من الإعدادات مباشرة */
 
 /* ============ INIT (فتح فوري — البيانات تُحمَّل في الخلفية) ============ */
 initTheme();
@@ -5237,7 +5315,7 @@ const infoOverlay = document.getElementById('infoOverlay');
    Service Worker — يخلّي التطبيق يشتغل offline بالكامل
    أول فتحة بإنترنت بتخزّن التطبيق، وبعدها مايحتاجش شبكة.
    ═══════════════════════════════════════════════════════════ */
-if('serviceWorker' in navigator){
+if(navigator.serviceWorker && typeof navigator.serviceWorker.register === 'function'){
   window.addEventListener('load', ()=>{
     navigator.serviceWorker.register('./sw.js', { scope: './' })
       .then(reg=>{
