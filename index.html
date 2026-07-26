@@ -1126,35 +1126,46 @@ mark.hl{
 
 
 /* ═══ المساعد الصوتي ═══ */
-.mic-btn{
-  position:absolute; inset-inline-start:44px; top:50%; transform:translateY(-50%);
-  width:36px; height:36px; border:0; border-radius:50%;
-  background:none; color:var(--ink-faint); cursor:pointer;
-  display:flex; align-items:center; justify-content:center;
-  transition:color .15s ease, background .15s ease;
+/* ═══ زرار المايك — كبير وفي متناول الإبهام ═══
+   كان جوّه خانة البحث بمقاس 36px، صعب الضغط عليه أثناء الشغل. */
+.fab-mic{
+  right:32px; left:auto;          /* نفس مسافة زرار الإضافة من الحافة */
+  bottom:32px;                    /* نفس الخط الأفقي */
+  width:58px; height:58px;        /* نفس المقاس */
+  background:linear-gradient(155deg, var(--teal-light,#2E8B7A), var(--teal-deep,#0B3B36));
+  box-shadow:0 10px 30px rgba(11,59,54,.34), inset 0 1px 0 rgba(255,255,255,.16);
+  touch-action:none;
+  -webkit-user-select:none; user-select:none;
+  -webkit-touch-callout:none;
+  z-index:60;
 }
-/* مساحة لمس ممتدة غير مرئية — الشكل ما يتغيّرش، بس الضغط بقى أسهل بكتير */
-.mic-btn::after{
-  content:''; position:absolute; inset:-9px; border-radius:50%;
-}
-.mic-btn:hover{color:var(--teal-deep); background:var(--teal-pale);}
-.mic-btn.mic-off{opacity:.4;}
-.mic-btn.listening{
-  color:#fff; background:var(--danger);
-  animation:micPulse 1.3s ease-in-out infinite;
+.fab-mic:hover{transform:scale(1.06); box-shadow:0 12px 34px rgba(11,59,54,.42);}
+.fab-mic:active{transform:scale(.94);}
+.fab-mic.mic-off{opacity:.45;}
+
+/* أثناء التسجيل */
+.fab-mic.listening{
+  background:linear-gradient(155deg,#E05A45,var(--danger,#C84632));
+  animation:micPulse 1.25s ease-in-out infinite;   /* هالة بس — المقاس ثابت */
 }
 @keyframes micPulse{
-  0%,100%{box-shadow:0 0 0 0 rgba(200,70,50,.5);}
-  50%{box-shadow:0 0 0 8px rgba(200,70,50,0);}
+  0%,100%{box-shadow:0 10px 30px rgba(200,70,50,.4), 0 0 0 0 rgba(200,70,50,.42);}
+  50%{box-shadow:0 10px 30px rgba(200,70,50,.4), 0 0 0 16px rgba(200,70,50,0);}
 }
-[data-theme="dark"] .mic-btn:hover{color:var(--teal-light);}
-.search-wrap input{padding-inline-start:86px;}
+@media (prefers-reduced-motion:reduce){ .fab-mic.listening{animation:none;} }
+
+/* شاشات صغيرة */
+@media (max-width:360px){
+  .fab-mic{right:32px; left:auto;}
+}
+
+.search-wrap input{padding-inline-start:16px;}
 
 /* مؤشر الاستماع */
 /* ── لوحة الاستماع الحيّة ── */
 .vpanel{
   position:fixed; inset-inline:14px; z-index:320;
-  bottom:calc(env(safe-area-inset-bottom,0) + 18px);
+  bottom:calc(env(safe-area-inset-bottom,0) + 112px);   /* فوق زرار المايك */
   background:var(--card); border:1px solid var(--line); border-radius:20px;
   box-shadow:0 22px 60px rgba(0,0,0,.24);
   padding:16px 16px 14px; opacity:0; transform:translateY(20px);
@@ -1806,16 +1817,6 @@ mark.hl{
 [data-theme="dark"] .cab-btn.pom-filter .cab-cnt{background:rgba(232,139,123,.16);}
 
 
-/* بديل الميكروفون على iOS */
-.mic-btn{
-  touch-action:none;                 /* مايعملش تمرير أثناء الضغط المستمر */
-  -webkit-user-select:none; user-select:none;
-  -webkit-touch-callout:none;        /* مايطلعش قايمة النسخ على الآيفون */
-}
-.mic-btn.listening{
-  transform:scale(1.12);
-  box-shadow:0 0 0 6px rgba(76,185,68,.16);
-}
 [data-theme="dark"] .imh-icn{background:linear-gradient(150deg,var(--teal-light),#31B8A6); color:#04211F;}
 
 ::-webkit-scrollbar{width:0;height:0;}
@@ -1897,9 +1898,6 @@ mark.hl{
     <div class="search-wrap">
       <input type="text" id="searchInput" placeholder="ابحث باسم الدواء بالعربي أو الإنجليزي...">
       <span class="icn"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.3-4.3"></path></svg></span>
-      <button class="mic-btn" id="micBtn" aria-label="اضغط واستمر للبحث الصوتي" title="اضغط واستمر واتكلم">
-        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><path d="M12 19v4M8 23h8"></path></svg>
-      </button>
       <button class="clear-btn" id="clearSearch"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"></path></svg></button>
     </div>
   </header>
@@ -1930,7 +1928,8 @@ mark.hl{
     <div class="load-more" id="loadMoreSentinel" style="display: none;"></div>
   </main>
 
-  <button class="fab" id="fabAdd" aria-label="إضافة صنف جديد"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg></button>
+  <button class="fab fab-mic" id="micBtn" aria-label="اضغط واستمر للبحث الصوتي" title="اضغط واستمر واتكلم"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><path d="M12 19v4M8 23h8"></path></svg></button>
+    <button class="fab" id="fabAdd" aria-label="إضافة صنف جديد"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg></button>
 
   <!-- Detail Sheet -->
   <div class="overlay" id="detailOverlay">
@@ -2495,6 +2494,22 @@ function searchItems(query, _retry){
     if(stripped && normalize(stripped) !== nq){
       const r2 = searchItems(stripped, true);
       if(r2 && r2.length && r2 !== DB.items) return r2;
+    }
+
+    /* تمريرة ثالثة: شيل المسافات.
+       محرّك الصوت بيقطّع الاسم لمقاطع — "كيتو فان" أو "كيت وفان" بدل "كيتوفان".
+       البحث بيعامل المسافة كفاصل بين كلمتين مستقلتين فيرجع فاضي. */
+    const joined = nq.replace(/\s+/g, '');
+    if(joined && joined !== nq && joined.length >= 3){
+      const r3 = searchItems(joined, true);
+      if(r3 && r3.length && r3 !== DB.items) return r3;
+    }
+    if(stripped){
+      const j2 = normalize(stripped).replace(/\s+/g, '');
+      if(j2 && j2.length >= 3 && j2 !== joined && j2 !== nq){
+        const r4 = searchItems(j2, true);
+        if(r4 && r4.length && r4 !== DB.items) return r4;
+      }
     }
     return res;
   }
@@ -3087,6 +3102,9 @@ function closeDrawer(){
   document.body.style.overflow='';
 }
 
+/* رقم البناء — يظهر في "عن التطبيق" عشان تتأكد أي نسخة شغّالة */
+const APP_BUILD = 'v4 · 2026-07-26';
+
 /* ═══════════════ الإعدادات / عن التطبيق ═══════════════ */
 function openInfo(kind){
   const t = document.getElementById('infoTitle');
@@ -3098,6 +3116,7 @@ function openInfo(kind){
       <p>دليل داخلي لتنظيم أماكن الأدوية داخل الصيدلية.</p>
       <div class="info-row"><span>عدد الأصناف</span><span>${DB.items.length}</span></div>
       <div class="info-row"><span>عدد الدواليب</span><span>${new Set(DB.items.map(i=>i.cab)).size}</span></div>
+      <div class="info-row"><span>إصدار التطبيق</span><span style="font-family:var(--font-mono);font-size:12.5px">${APP_BUILD}</span></div>
       <div class="disclaimer" style="margin-top:18px">هذا البرنامج مرجع داخلي لتنظيم أماكن الأدوية داخل الصيدلية، ويُستخدم للمساعدة في الوصول إلى موقع الدواء فقط. لا يُعد بديلاً عن التشخيص الطبي أو الوصفة الطبية أو استشارة الطبيب أو الصيدلي.</div>
     </div>`;
   }else{
@@ -3308,7 +3327,7 @@ const detailContent = document.getElementById('detailContent');
 const Voice = {
   rec: null, listening: false, supported: false, lang: 'ar-EG', _finalT: '',
   _held: false, _t0: 0, _fin: null, _got: false, _stopping: false, _restarts: 0,
-  _interim: '', _wd: null, _langTries: 0, _fails: 0,
+  _interim: '', _wd: null, _langTries: 0, _fails: 0, _segments: [], _alts: [],
 
   isIOS(){
     const ua = navigator.userAgent || '';
@@ -3366,9 +3385,10 @@ const Voice = {
     this.rec.onend = ()=>{
       this.listening = false; this.ui(false); this.disarm();
 
-      /* لو النتيجة النهائية ماوصلتش لكن فيه نص مبدئي — استخدمه */
-      if(!this._got && this._interim){
-        try{ this.commit([this._interim]); this._got = true; }catch(e){}
+      /* الإصبع اترفع والمحرّك خلص — نفّذ على كل اللي اتجمّع */
+      if(!this._held && !this._got && (this._segments.length || this._interim)){
+        this._got = true;
+        try{ this.finish(); }catch(e){}
       }
       /* الإصبع لسه ضاغط → المحرّك وقف لوحده، رجّعه فورًا */
       if(this._held && this._restarts < 6){
@@ -3445,10 +3465,20 @@ const Voice = {
       }
 
       if(finals.length){
-        this._got = true; this._interim = '';
-        this.disarm();
-        try{ this.commit(finals); }
-        catch(e){ this.say((finals[0]||'').trim(), '', false); try{ this.apply(finals[0], false); }catch(_){} }
+        /* المحرّك بيقطّع الكلام عند كل وقفة صغيرة ويسلّم كل مقطع لوحده.
+           طول ما الإصبع ضاغط بنجمّع — والتنفيذ عند ترك الزرار فقط.
+           من غير كده "بانادول اكسترا" كانت بتتنفّذ على "بانادول" ويضيع الباقي. */
+        this._interim = '';
+        this._segments.push((finals[0] || '').trim());
+        for(const a of finals) if(a && !this._alts.includes(a)) this._alts.push(a);
+
+        const sofar = this._segments.join(' ').trim();
+        this.say(sofar, '', this._held);
+
+        if(this._held){ this.arm(); return; }    /* لسه ضاغط → كمّل تسجيل */
+
+        this._got = true; this.disarm();
+        this.finish();
       }
     };
   },
@@ -3503,6 +3533,33 @@ const Voice = {
     }
     out.sort((a,b)=> b.score - a.score);
     return out;
+  },
+
+  /* كل الصيغ المحتملة للي اتقال — الترتيب بيختار الأنسب منها */
+  candidates(){
+    const out = [];
+    const push = (t)=>{ t = String(t || '').trim(); if(t && out.indexOf(t) === -1) out.push(t); };
+
+    const full = this._segments.join(' ').trim();
+    push(full);                                   /* الجملة كاملة */
+    if(full) push(full.replace(/\s+/g, ''));      /* مدموجة بدون مسافات */
+    if(this._segments.length > 1){
+      for(const s of this._segments) push(s);      /* كل مقطع لوحده */
+    }
+    for(const a of this._alts) push(a);            /* بدائل المحرّك */
+    if(this._interim) push(this._interim);
+    return out;
+  },
+
+  finish(){
+    const c = this.candidates();
+    if(!c.length){ this.fail(); setTimeout(()=> this.panel(false), 2600); return; }
+    try{ this.commit(c); }
+    catch(e){
+      const t = c[0];
+      this.say(t, '', false);
+      try{ this.apply(t, false); }catch(_){}
+    }
   },
 
   commit(finals){
@@ -3592,6 +3649,7 @@ const Voice = {
     this._t0 = Date.now();
     this._restarts = 0; this._stopping = false; this._got = false;
     this._interim = ''; this._langTries = 0;
+    this._segments = []; this._alts = [];
     clearTimeout(this._fin);
     this.rec.lang = this.lang;
 
@@ -3627,22 +3685,17 @@ const Voice = {
       return;
     }
 
-    this.say(this._interim || 'بحلّل…', 'بيدوّر…', false);
+    const sofar = this._segments.join(' ').trim() || this._interim;
+    this.say(sofar || 'بحلّل…', 'بيدوّر…', false);
 
-    /* شبكة أمان: لو النتيجة النهائية ماوصلتش، استخدم النص المبدئي */
+    /* مهلة قصيرة لاستقبال آخر مقطع بعد الإيقاف، ثم ننفّذ على المجموع كله */
     clearTimeout(this._fin);
     this._fin = setTimeout(()=>{
       this.listening = false; this.ui(false);
       if(this._got) return;
-      if(this._interim){
-        this._got = true;
-        try{ this.commit([this._interim]); }
-        catch(e){ try{ this.apply(this._interim, false); }catch(_){} }
-      }else{
-        this.fail();
-        setTimeout(()=> this.panel(false), 2600);
-      }
-    }, 1500);
+      this._got = true;
+      this.finish();
+    }, 1400);
   },
 
   stop(){
