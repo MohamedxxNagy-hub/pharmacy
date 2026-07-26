@@ -1159,7 +1159,7 @@ mark.hl{
   .fab-mic{right:32px; left:auto;}
 }
 
-.search-wrap input{padding-inline-start:16px;}
+.search-wrap input{padding-inline-start:44px;}   /* مساحة أيقونة البحث */
 
 /* مؤشر الاستماع */
 /* ── لوحة الاستماع الحيّة ── */
@@ -3103,7 +3103,7 @@ function closeDrawer(){
 }
 
 /* رقم البناء — يظهر في "عن التطبيق" عشان تتأكد أي نسخة شغّالة */
-const APP_BUILD = 'v5 · 2026-07-26';
+const APP_BUILD = 'v7 · 2026-07-26';
 
 /* ═══════════════ الإعدادات / عن التطبيق ═══════════════ */
 function openInfo(kind){
@@ -3328,7 +3328,7 @@ const Voice = {
   rec: null, listening: false, supported: false, lang: 'ar-EG', _finalT: '',
   _held: false, _t0: 0, _fin: null, _got: false, _stopping: false, _restarts: 0,
   _interim: '', _wd: null, _langTries: 0, _fails: 0, _segments: [], _alts: [],
-  _lastFinalAt: 0, _segBeganAt: 0, _heard: false,
+  _lastFinalAt: 0, _segBeganAt: 0, _resumedAt: 0, _heard: false,
 
   isIOS(){
     const ua = navigator.userAgent || '';
@@ -3380,6 +3380,8 @@ const Voice = {
       this.listening = true; this._got = false; this._stopping = false;
       this.ui(true); this.panel(true);
       this.say(this._interim || 'سيبك ضاغط… واتكلم', '', true);
+      /* لو ده رجوع بعد توقّف تلقائي، الوقت الضايع مش صمت من المستخدم */
+      if(this._segments.length) this._resumedAt = Date.now();
       this.arm();                      /* حارس زمني: مايفضلش سامع للأبد */
     };
 
@@ -3392,12 +3394,16 @@ const Voice = {
         try{ this.finish(); }catch(e){}
       }
       /* الإصبع لسه ضاغط → المحرّك وقف لوحده، رجّعه فورًا */
-      if(this._held && this._restarts < 6){
+      if(this._held && this._restarts < 25){
         this._restarts++;
-        setTimeout(()=>{
+        /* فورًا بدون تأخير — أي فجوة هنا = كلام ضايع.
+           لو المحرّك لسه بيقفل بيرمي استثناء، نعيد المحاولة بعد لحظة. */
+        const go = ()=>{
           if(!this._held || this.listening) return;
-          try{ this.rec.start(); }catch(e){}
-        }, 120);
+          try{ this.rec.start(); }
+          catch(e){ setTimeout(go, 60); }
+        };
+        go();
         return;
       }
       if(!this._got) this.fail();
@@ -3479,7 +3485,11 @@ const Voice = {
         /* مدة الصمت الفعلية قبل المقطع ده — الفاصل بين آخر مقطع خلص
            وأول صوت في المقطع الجديد. */
         const began = this._segBeganAt || Date.now();
-        const gap = this._lastFinalAt ? Math.max(0, began - this._lastFinalAt) : 0;
+        /* نحسب الصمت من آخر مقطع — أو من لحظة رجوع المحرّك لو كان وقف،
+           عشان زمن إعادة التشغيل مايتحسبش وقفة من المستخدم. */
+        const from = Math.max(this._lastFinalAt || 0, this._resumedAt || 0);
+        const gap = from ? Math.max(0, began - from) : 0;
+        this._resumedAt = 0;
         this._segBeganAt = 0;
         this._lastFinalAt = Date.now();
 
@@ -3490,6 +3500,9 @@ const Voice = {
         this.say(sofar, '', this._held);
 
         if(this._held){ this.arm(); return; }    /* لسه ضاغط → كمّل تسجيل */
+
+        /* مقطع وصل بعد ما نفّذنا — أعد الحساب بالنص الأكمل بدل ما يتهدر */
+        if(this._got){ this.finish(); return; }
 
         this._got = true; this.disarm();
         this.finish();
@@ -3577,9 +3590,18 @@ const Voice = {
     push(full);
     if(full) push(full.replace(/\s+/g, ''));      /* مدموجة تمامًا */
     if(this._segments.length > 1){
-      /* الشكل المفصول بالكامل — احتياطي لو التوقيت غلط */
-      push(this._segments.map(s => (typeof s === 'string' ? s : s.t)).join(' ').trim());
-      for(const s of this._segments) push(typeof s === 'string' ? s : s.t);
+      const parts = this._segments.map(s => (typeof s === 'string' ? s : s.t)).filter(Boolean);
+
+      push(parts.join(' ').trim());        /* مفصول بالكامل — احتياطي */
+      push(parts.join(''));                /* ملزوق بالكامل */
+
+      /* دمج كل مقطعين متجاورين — بيلمّ الكلمة اللي اتقسمت على فجوة */
+      for(let i = 0; i < parts.length - 1; i++){
+        push(parts[i] + parts[i + 1]);
+        push(parts[i] + ' ' + parts[i + 1]);
+      }
+      /* وكل مقطع لوحده */
+      for(const p of parts) push(p);
     }
     for(const a of this._alts) push(a);            /* بدائل المحرّك */
     if(this._interim) push(this._interim);
@@ -3685,7 +3707,7 @@ const Voice = {
     this._restarts = 0; this._stopping = false; this._got = false;
     this._interim = ''; this._langTries = 0;
     this._segments = []; this._alts = [];
-    this._lastFinalAt = 0; this._segBeganAt = 0;
+    this._lastFinalAt = 0; this._segBeganAt = 0; this._resumedAt = 0;
     clearTimeout(this._fin);
     this.rec.lang = this.lang;
 
@@ -3731,7 +3753,7 @@ const Voice = {
       if(this._got) return;
       this._got = true;
       this.finish();
-    }, 1400);
+    }, 1800);
   },
 
   stop(){
@@ -3770,7 +3792,7 @@ const Voice = {
         <span class="vp-state" id="vpState">بيسمعك…</span>
         <button class="vp-x" id="vpX" type="button" aria-label="إغلاق">✕</button>
       </div>
-      <div class="vp-text dim" id="vpText">سيبك ضاغط… واتكلم</div>
+      <div class="vp-text dim" id="vpText">سيبك ضاغط… وقول اسم الدوا متصل</div>
       <div class="vp-hit" id="vpHit"></div>
       <div class="vp-alts" id="vpAlts"></div>`;
     document.body.appendChild(p);
