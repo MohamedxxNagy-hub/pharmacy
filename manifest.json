@@ -1,0 +1,19 @@
+{
+  "name": "دليل صيدلية د. ناجي أحمد عبدالحليم",
+  "short_name": "دليل الصيدلية",
+  "description": "بحث فوري عن مكان أي دواء داخل الصيدلية",
+  "lang": "ar",
+  "dir": "rtl",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0E4F4F",
+  "theme_color": "#0E4F4F",
+  "categories": ["medical", "productivity"],
+  "icons": [
+    { "src": "./icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
