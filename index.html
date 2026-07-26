@@ -3103,7 +3103,7 @@ function closeDrawer(){
 }
 
 /* رقم البناء — يظهر في "عن التطبيق" عشان تتأكد أي نسخة شغّالة */
-const APP_BUILD = 'v4 · 2026-07-26';
+const APP_BUILD = 'v5 · 2026-07-26';
 
 /* ═══════════════ الإعدادات / عن التطبيق ═══════════════ */
 function openInfo(kind){
@@ -3328,6 +3328,7 @@ const Voice = {
   rec: null, listening: false, supported: false, lang: 'ar-EG', _finalT: '',
   _held: false, _t0: 0, _fin: null, _got: false, _stopping: false, _restarts: 0,
   _interim: '', _wd: null, _langTries: 0, _fails: 0, _segments: [], _alts: [],
+  _lastFinalAt: 0, _segBeganAt: 0, _heard: false,
 
   isIOS(){
     const ua = navigator.userAgent || '';
@@ -3436,7 +3437,11 @@ const Voice = {
     };
 
     /* أندرويد: بعض الأجهزة بتوقف الصوت قبل ما تسلّم النتيجة — نمدّد الحارس */
-    this.rec.onspeechstart = ()=>{ this._heard = true; this.arm(); };
+    this.rec.onspeechstart = ()=>{
+      this._heard = true;
+      if(!this._segBeganAt) this._segBeganAt = Date.now();   /* بداية مقطع جديد */
+      this.arm();
+    };
     this.rec.onspeechend   = ()=>{ this.arm(); };
     this.rec.onaudioend    = ()=>{ this.arm(); };
     this.rec.onnomatch     = ()=>{ if(!this._interim) this.fail(); };
@@ -3458,6 +3463,7 @@ const Voice = {
 
       if(interim.trim() && !finals.length){
         this._interim = interim.trim();
+        if(!this._segBeganAt) this._segBeganAt = Date.now();
         this.arm();                            /* الكلام شغّال — مدّد الحارس */
         this.say(this._interim, '', true);
         try{ this.apply(this._interim, true); }catch(e){}   /* بحث حيّ */
@@ -3469,10 +3475,18 @@ const Voice = {
            طول ما الإصبع ضاغط بنجمّع — والتنفيذ عند ترك الزرار فقط.
            من غير كده "بانادول اكسترا" كانت بتتنفّذ على "بانادول" ويضيع الباقي. */
         this._interim = '';
-        this._segments.push((finals[0] || '').trim());
+
+        /* مدة الصمت الفعلية قبل المقطع ده — الفاصل بين آخر مقطع خلص
+           وأول صوت في المقطع الجديد. */
+        const began = this._segBeganAt || Date.now();
+        const gap = this._lastFinalAt ? Math.max(0, began - this._lastFinalAt) : 0;
+        this._segBeganAt = 0;
+        this._lastFinalAt = Date.now();
+
+        this._segments.push({ t: (finals[0] || '').trim(), gap: gap });
         for(const a of finals) if(a && !this._alts.includes(a)) this._alts.push(a);
 
-        const sofar = this._segments.join(' ').trim();
+        const sofar = this.joinSegments();
         this.say(sofar, '', this._held);
 
         if(this._held){ this.arm(); return; }    /* لسه ضاغط → كمّل تسجيل */
@@ -3535,16 +3549,37 @@ const Voice = {
     return out;
   },
 
+  /* ═══ الوقفة القصيرة = نفس الكلمة · الوقفة الطويلة = كلمة جديدة ═══
+     محرّك الصوت بيقطّع عند أي وقفة مهما كانت قصيرة، فكان بيكتب
+     "كيتو فان" بدل "كيتوفان". دلوقتي المسافة بتتحط فقط لو الصمت
+     عدّى الحد ده — يعني وقفت بينهم بقصد. */
+  PAUSE_MS: 650,
+
+  joinSegments(){
+    let out = '';
+    for(let i = 0; i < this._segments.length; i++){
+      const s = this._segments[i];
+      const txt = (typeof s === 'string') ? s : s.t;
+      if(!txt) continue;
+      if(!out){ out = txt; continue; }
+      const gap = (typeof s === 'string') ? 9999 : s.gap;
+      out += (gap >= this.PAUSE_MS ? ' ' : '') + txt;
+    }
+    return out.trim();
+  },
+
   /* كل الصيغ المحتملة للي اتقال — الترتيب بيختار الأنسب منها */
   candidates(){
     const out = [];
     const push = (t)=>{ t = String(t || '').trim(); if(t && out.indexOf(t) === -1) out.push(t); };
 
-    const full = this._segments.join(' ').trim();
-    push(full);                                   /* الجملة كاملة */
-    if(full) push(full.replace(/\s+/g, ''));      /* مدموجة بدون مسافات */
+    const full = this.joinSegments();             /* حسب مدة الوقفات */
+    push(full);
+    if(full) push(full.replace(/\s+/g, ''));      /* مدموجة تمامًا */
     if(this._segments.length > 1){
-      for(const s of this._segments) push(s);      /* كل مقطع لوحده */
+      /* الشكل المفصول بالكامل — احتياطي لو التوقيت غلط */
+      push(this._segments.map(s => (typeof s === 'string' ? s : s.t)).join(' ').trim());
+      for(const s of this._segments) push(typeof s === 'string' ? s : s.t);
     }
     for(const a of this._alts) push(a);            /* بدائل المحرّك */
     if(this._interim) push(this._interim);
@@ -3650,6 +3685,7 @@ const Voice = {
     this._restarts = 0; this._stopping = false; this._got = false;
     this._interim = ''; this._langTries = 0;
     this._segments = []; this._alts = [];
+    this._lastFinalAt = 0; this._segBeganAt = 0;
     clearTimeout(this._fin);
     this.rec.lang = this.lang;
 
@@ -3685,7 +3721,7 @@ const Voice = {
       return;
     }
 
-    const sofar = this._segments.join(' ').trim() || this._interim;
+    const sofar = this.joinSegments() || this._interim;
     this.say(sofar || 'بحلّل…', 'بيدوّر…', false);
 
     /* مهلة قصيرة لاستقبال آخر مقطع بعد الإيقاف، ثم ننفّذ على المجموع كله */
