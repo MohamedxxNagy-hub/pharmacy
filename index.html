@@ -505,12 +505,18 @@ main{flex:1; padding:14px 16px 100px; overflow-y:auto; -webkit-overflow-scrollin
   font-size:12px; color:var(--ink-soft); margin-top:6px; line-height:1.5;
   display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
 }
+/* ═══ تظليل نتائج البحث ═══
+   في العربي الحروف بتتوصل ببعض. أي تغيير في الخط (وزن/عائلة/حجم)
+   جوّه الكلمة بيخلّي المتصفح يعاملها كخطين مختلفين فيقطع الاتصال
+   وتبان الحروف منفصلة. فاللون بس هو اللي بيتغيّر. */
 mark.hl{
+  font:inherit;
+  font-weight:inherit;
   background:none;
   color:var(--amber-deep);
-  font-weight:800;
   padding:0;
   margin:0;
+  text-decoration:none;
 }
 .med-card .meta-row{
   display:flex; align-items:center; gap:6px; margin-top:8px; flex-wrap:wrap;
@@ -1688,8 +1694,9 @@ mark.hl{
   color:var(--ink-faint); letter-spacing:.3px;
 }
 .med-card mark.hl{
+  font:inherit; font-weight:inherit;
   background:none; color:var(--brand,#2fa8d5);
-  padding:0; margin:0; font-weight:800;
+  padding:0; margin:0;
 }
 [data-theme="dark"] .med-card mark.hl{color:#7dd3fc;}
 @media (max-width:360px){
@@ -1801,7 +1808,11 @@ mark.hl{
 .med-card.pom .mc-loc-t i{background:rgba(255,255,255,.4);}
 .med-card.pom .mc-pct{color:rgba(255,255,255,.78);}
 .med-card.pom .mc-flag{background:rgba(255,255,255,.18);color:#fff;border-color:rgba(255,255,255,.32);}
-.med-card.pom mark.hl{background:none;color:#fff;text-decoration:underline;text-underline-offset:2px;}
+.med-card.pom mark.hl{
+  font:inherit; font-weight:inherit;
+  background:none; color:#FFE27A;     /* لون بدل التسطير — أنضف مع العربي */
+  text-decoration:none;
+}
 .mc-pom{display:inline-flex;align-items:center;gap:5px;background:#fff;color:#9E2A1E;font-size:9.5px;font-weight:800;padding:3px 9px;border-radius:999px;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.18);}
 .mc-pom svg{width:11px;height:11px;flex-shrink:0;}
 [data-theme="dark"] .med-card.pom{background:linear-gradient(135deg,#7A2118 0%,#96291F 52%,#6B1C13 100%);border-color:#5E1810;}
@@ -2304,6 +2315,10 @@ function prepItem(it){
   it._norm = (it._name + ' ' + it._nuse + ' ' + it._nlook + ' ' + it._nloc).trim();
   it._fold = phoneticFold(it._name);
   it._foldW= it._fold.split(' ').filter(Boolean);
+  /* نسخ مجرّدة من المسافات — عشان "بانادولاكسترا" تطابق "بانادول إكسترا" والعكس */
+  it._sqAr   = it._nar.replace(/\s+/g, '');
+  it._sqEn   = it._nen.replace(/\s+/g, '');
+  it._sqFold = it._fold.replace(/\s+/g, '');
   return it;
 }
 
@@ -2439,6 +2454,35 @@ function scoreItemFast(nq, it){
   if(it._nar === undefined) prepItem(it);
   if(it._nar === nq || it._nen === nq) return 100;                  // تطابق تام
   if(it._nar.startsWith(nq) || it._nen.startsWith(nq)) return 94;   // بادئة الاسم
+
+  /* ═══ مطابقة لا تفرّق في المسافات ═══
+     محرّك الصوت بيقطّع الأسماء عشوائيًا. بنقارن الشكل المجرّد من
+     المسافات على الجهتين، فـ"بانادولاكسترا" = "بانادول إكسترا". */
+  {
+    const sq = nq.indexOf(' ') === -1 ? nq : nq.replace(/\s+/g, '');
+    if(sq.length >= 3 && it._sqAr !== undefined){
+      if(sq === it._sqAr || sq === it._sqEn) return 99;
+      if(it._sqAr.startsWith(sq) || it._sqEn.startsWith(sq)) return 93;
+      /* العكس: المستخدم قال الاسم + كلمة زيادة ("اوجمنتينشراب") */
+      if(it._sqAr.length >= 4 && sq.startsWith(it._sqAr)) return 84;
+      if(it._sqEn.length >= 4 && sq.startsWith(it._sqEn)) return 83;
+      if(sq.length >= 5){
+        if(it._sqAr.indexOf(sq) !== -1 || it._sqEn.indexOf(sq) !== -1) return 82;
+        /* تسامح مع خطأ النطق بعد إلغاء المسافات */
+        const tol = sq.length >= 8 ? 2 : 1;
+        if(it._sqAr && Math.abs(it._sqAr.length - sq.length) <= tol &&
+           boundedDamLev(sq, it._sqAr, tol, false) <= tol) return 79;
+        if(it._sqEn && Math.abs(it._sqEn.length - sq.length) <= tol &&
+           boundedDamLev(sq, it._sqEn, tol, false) <= tol) return 78;
+        /* مقارنة صوتية بدون مسافات — أقوى دفاع ضد خطأ النطق */
+        if(it._sqFold){
+          const fq = phoneticFold(sq);
+          if(fq === it._sqFold) return 86;
+          if(fq.length >= 5 && it._sqFold.indexOf(fq) !== -1) return 73;
+        }
+      }
+    }
+  }
   /* بادئة قصيرة: تطابق تام ثم تسامح بحرف واحد على بداية الاسم */
   if(nq.length >= 3 && nq.length <= 6){
     for(const w of it._nw){
@@ -3103,7 +3147,7 @@ function closeDrawer(){
 }
 
 /* رقم البناء — يظهر في "عن التطبيق" عشان تتأكد أي نسخة شغّالة */
-const APP_BUILD = 'v7 · 2026-07-26';
+const APP_BUILD = 'v9 · 2026-07-26';
 
 /* ═══════════════ الإعدادات / عن التطبيق ═══════════════ */
 function openInfo(kind){
@@ -3124,6 +3168,11 @@ function openInfo(kind){
     b.innerHTML = `<div class="info-block">
       <h4>المظهر</h4>
       <div class="info-row"><span>الوضع الليلي</span><span><button class="btn btn-outline" id="setTheme" style="padding:5px 14px;font-size:12.5px">تبديل</button></span></div>
+      <h4>البحث الصوتي</h4>
+      <div class="info-row"><span>اللغة</span><span>
+        <button class="btn btn-outline" id="setVoiceAr" style="padding:5px 13px;font-size:12.5px;margin-inline-end:6px">عربي</button>
+        <button class="btn btn-outline" id="setVoiceEn" style="padding:5px 13px;font-size:12.5px">English</button>
+      </span></div>
       <h4>الحساب</h4>
       <div class="info-row"><span>الاسم المعروض</span><span><button class="btn btn-outline" id="setName" style="padding:5px 14px;font-size:12.5px">تغيير</button></span></div>
       <h4>البيانات</h4>
@@ -3143,6 +3192,21 @@ function openInfo(kind){
       }, 220);
     });
     const st=document.getElementById('setTheme'); if(st) st.addEventListener('click', toggleTheme);
+
+    /* لغة البحث الصوتي — لغة واحدة بس، الخلط بيقلّل الدقة */
+    const vAr=document.getElementById('setVoiceAr'), vEn=document.getElementById('setVoiceEn');
+    if(vAr && vEn){
+      const syncV=()=>{
+        const en = Voice.isEn();
+        vAr.style.opacity = en ? '.45' : '1';
+        vEn.style.opacity = en ? '1' : '.45';
+        vAr.style.fontWeight = en ? '500' : '800';
+        vEn.style.fontWeight = en ? '800' : '500';
+      };
+      syncV();
+      vAr.addEventListener('click', ()=>{ Voice.setLang('ar'); syncV(); showToast('🎤 لغة البحث الصوتي: عربي'); });
+      vEn.addEventListener('click', ()=>{ Voice.setLang('en'); syncV(); showToast('🎤 Voice language: English'); });
+    }
     const se=document.getElementById('setExport'); if(se) se.addEventListener('click', ()=>{ closeOverlay(infoOverlay); exportUpdatedFile(); });
     const sp=document.getElementById('setPw'); if(sp) sp.addEventListener('click', ()=>{
       closeOverlay(infoOverlay);
@@ -3379,7 +3443,10 @@ const Voice = {
     this.rec.onstart = ()=>{
       this.listening = true; this._got = false; this._stopping = false;
       this.ui(true); this.panel(true);
-      this.say(this._interim || 'سيبك ضاغط… واتكلم', '', true);
+      this.say(this._interim || 'اتكلم دلوقتي', '', true);
+      if(!this._segments.length && navigator.vibrate){
+        try{ navigator.vibrate(14); }catch(e){}   /* اهتزاز عند الجاهزية الفعلية */
+      }
       /* لو ده رجوع بعد توقّف تلقائي، الوقت الضايع مش صمت من المستخدم */
       if(this._segments.length) this._resumedAt = Date.now();
       this.arm();                      /* حارس زمني: مايفضلش سامع للأبد */
@@ -3419,7 +3486,7 @@ const Voice = {
 
       /* اللغة مش متاحة على الجهاز → جرّب بدائل بالترتيب */
       if(err === 'language-not-supported' || err === 'bad-grammar'){
-        const chain = ['ar-EG','ar-SA','ar'];      /* عربي فقط — أعلى دقة */
+        const chain = this.isEn() ? ['en-US','en-GB','en'] : ['ar-EG','ar-SA','ar'];
         const i = chain.indexOf(this.lang);
         const next = chain[i + 1] || 'ar';
         if(this._langTries < 2){
@@ -3494,6 +3561,7 @@ const Voice = {
         this._lastFinalAt = Date.now();
 
         this._segments.push({ t: (finals[0] || '').trim(), gap: gap });
+        this._restarts = 0;      /* مقطع منتج — رصيد إعادة التشغيل يتصفّر */
         for(const a of finals) if(a && !this._alts.includes(a)) this._alts.push(a);
 
         const sofar = this.joinSegments();
@@ -3569,14 +3637,12 @@ const Voice = {
   PAUSE_MS: 650,
 
   joinSegments(){
+    /* المسافة اتلغت نهائيًا: محرّك الصوت بيقطّع الأسماء عشوائيًا،
+       والفهرس بقى لا يفرّق بين وجود المسافة وعدمها. */
     let out = '';
-    for(let i = 0; i < this._segments.length; i++){
-      const s = this._segments[i];
+    for(const s of this._segments){
       const txt = (typeof s === 'string') ? s : s.t;
-      if(!txt) continue;
-      if(!out){ out = txt; continue; }
-      const gap = (typeof s === 'string') ? 9999 : s.gap;
-      out += (gap >= this.PAUSE_MS ? ' ' : '') + txt;
+      if(txt) out += txt;
     }
     return out.trim();
   },
@@ -3621,9 +3687,14 @@ const Voice = {
 
   commit(finals){
     /* ترشيح الضوضاء: نتائج قصيرة جدًا أو بلا حروف عربية/لاتينية = ضجيج */
-    const clean = (finals || [])
+    let clean = (finals || [])
       .map(t => String(t || '').trim())
       .filter(t => t.length >= 2 && /[\u0600-\u06FFa-zA-Z]/.test(t));
+
+    /* اللغة المختارة لها الأولوية */
+    const inLang = clean.filter(t => this.keepLang(t));
+    if(inLang.length) clean = inLang;
+
     if(!clean.length){ this.fail(); return; }
 
     const ranked = this.rank(clean);
@@ -3720,9 +3791,10 @@ const Voice = {
     go();
 
     /* رد فعل فوري قبل ما المحرّك يجهز */
+    /* المحرّك بياخد جزء من الثانية عشان يبدأ التقاط الصوت — لو اتكلمت
+       فورًا أول مقطع بيضيع. فبنقول "لحظة" لحد ما يجهز فعلًا. */
     this.ui(true); this.panel(true);
-    this.say('سيبك ضاغط… واتكلم', '', true);
-    if(navigator.vibrate){ try{ navigator.vibrate(12); }catch(e){} }
+    this.say('لحظة…', 'بجهّز المايك', true);
   },
 
   /* ═══ اضغط واستمر: نهاية التسجيل ═══ */
@@ -3766,8 +3838,27 @@ const Voice = {
     }, 1500);
   },
 
-  /* اللغة ثابتة على العربية — أعلى دقة تعرّف للأدوية */
-  loadLang(){ return 'ar-EG'; },
+  /* لغة واحدة فقط — الخلط بيقلّل دقة التعرّف بشكل ملحوظ */
+  loadLang(){
+    try{ if(localStorage.getItem('pharmacy_voice_lang') === 'en') return 'en-US'; }catch(e){}
+    return 'ar-EG';
+  },
+  setLang(code){
+    this.lang = (code === 'en') ? 'en-US' : 'ar-EG';
+    this._langTries = 0;
+    try{ localStorage.setItem('pharmacy_voice_lang', code === 'en' ? 'en' : 'ar'); }catch(e){}
+    if(this.rec) this.rec.lang = this.lang;
+  },
+  isEn(){ return this.lang === 'en-US'; },
+
+  /* ترشيح على اللغة المختارة — يمنع خروج نص مخلوط */
+  keepLang(t){
+    const s = String(t || '');
+    const ar = (s.match(/[\u0600-\u06FF]/g) || []).length;
+    const en = (s.match(/[a-zA-Z]/g) || []).length;
+    if(!ar && !en) return true;
+    return this.isEn() ? (en >= ar) : (ar >= en);
+  },
 
   /* تنظيف كامل — يمنع بقاء المحرّك شغّال في الخلفية */
   cleanup(){
