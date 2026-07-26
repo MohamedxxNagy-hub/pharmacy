@@ -1258,6 +1258,48 @@ mark.hl{
 /* تلميحات للمتصفح على العناصر المتحرّكة فقط */
 .drawer,.detail-sheet,.vpanel{will-change:transform;}
 
+/* ═══ واجهة النشر ═══ */
+.pub-ov{
+  position:fixed; inset:0; z-index:400; display:flex; align-items:center; justify-content:center;
+  padding:22px; background:rgba(6,20,18,.62); opacity:0; pointer-events:none;
+  transition:opacity .22s ease; -webkit-backdrop-filter:blur(6px); backdrop-filter:blur(6px);
+}
+.pub-ov.open{opacity:1; pointer-events:auto;}
+.pub-box{
+  width:100%; max-width:400px; background:var(--card); border:1px solid var(--line);
+  border-radius:20px; padding:20px; box-shadow:0 26px 70px rgba(0,0,0,.3);
+  transform:translateY(14px); transition:transform .26s cubic-bezier(.16,1,.3,1);
+  max-height:88vh; overflow:auto;
+}
+.pub-ov.open .pub-box{transform:none;}
+.pub-box h3{margin:0 0 6px; font-family:var(--font-display); font-size:17px; color:var(--ink);}
+.pub-hint{margin:0 0 14px; font-size:12px; line-height:1.85; color:var(--ink-soft);}
+.pub-box input{
+  width:100%; padding:11px 12px; margin-bottom:9px; border-radius:11px;
+  border:1px solid var(--line); background:var(--paper); color:var(--ink);
+  font-family:var(--font-mono); font-size:12.5px; direction:ltr; text-align:left; outline:none;
+}
+.pub-box input:focus{border-color:var(--brand,#2fa8d5);}
+.pub-row2{display:grid; grid-template-columns:1fr 1fr; gap:8px;}
+.pub-step{
+  display:flex; align-items:flex-start; gap:9px; padding:7px 0;
+  font-size:12.8px; line-height:1.7; color:var(--ink);
+}
+.pub-step i{
+  width:19px; height:19px; flex:none; border-radius:6px; display:grid; place-items:center;
+  font-style:normal; font-size:11px; margin-top:1px;
+  background:var(--paper); color:var(--ink-faint);
+}
+.pub-step.run i{background:rgba(47,168,213,.15); color:var(--brand,#2fa8d5);}
+.pub-step.done i{background:rgba(76,185,68,.16); color:#3D9A36;}
+.pub-step.err{color:var(--danger,#C84632);}
+.pub-step.err i{background:rgba(200,70,50,.14); color:var(--danger,#C84632);}
+.pub-note{
+  margin-top:12px; padding:12px; border-radius:12px; font-size:12.3px; line-height:1.9;
+  background:var(--teal-pale,#E8F3F0); color:var(--teal,#12564E);
+}
+.pub-close{width:100%; margin-top:14px;}
+
 .voice-ind{
   position:fixed; left:50%; bottom:calc(env(safe-area-inset-bottom,0) + 92px);
   transform:translate(-50%,14px); z-index:260;
@@ -3154,7 +3196,212 @@ function closeDrawer(){
 }
 
 /* رقم البناء — يظهر في "عن التطبيق" عشان تتأكد أي نسخة شغّالة */
-const APP_BUILD = 'v9 · 2026-07-26';
+const APP_BUILD = 'v10 · 2026-07-26';
+
+/* ═══════════════════════════════════════════════════════════════
+   PUB — نشر التحديث مباشرة من التطبيق إلى GitHub
+   ───────────────────────────────────────────────────────────────
+   • الزرار مابيظهرش إلا لو فيه توكن مخزّن على الجهاز ده
+   • أجهزة الموظفين: التخزين فاضي → الزرار مش موجود أصلاً
+   • الإعداد: اضغط على "إصدار التطبيق" ٥ مرات في «عن التطبيق»
+   ═══════════════════════════════════════════════════════════════ */
+const PUB = {
+  KEY: 'pharmacy_pub_cfg',
+
+  cfg(){
+    try{ return JSON.parse(localStorage.getItem(this.KEY) || 'null'); }
+    catch(e){ return null; }
+  },
+  enabled(){ const c = this.cfg(); return !!(c && c.tok); },
+  save(tok, owner, repo){
+    try{
+      localStorage.setItem(this.KEY, JSON.stringify({
+        tok: (tok||'').trim(),
+        owner: (owner||'').trim() || 'mohamedxxnagy-hub',
+        repo: (repo||'').trim() || 'pharmacy'
+      }));
+      return true;
+    }catch(e){ return false; }
+  },
+  forget(){ try{ localStorage.removeItem(this.KEY); }catch(e){} },
+
+  /* ── ترميز UTF-8 ⇄ Base64 ── */
+  b64(str){
+    const b = new TextEncoder().encode(str);
+    let s = '', C = 0x8000;
+    for(let i=0;i<b.length;i+=C) s += String.fromCharCode.apply(null, b.subarray(i, i+C));
+    return btoa(s);
+  },
+  unb64(x){
+    const bin = atob(String(x).replace(/\s/g,''));
+    const b = new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++) b[i] = bin.charCodeAt(i);
+    return new TextDecoder().decode(b);
+  },
+
+  version(){
+    const d = new Date(), p = x => String(x).padStart(2,'0');
+    return 'v' + d.getFullYear() + '-' + p(d.getMonth()+1) + '-' + p(d.getDate())
+         + '-' + p(d.getHours()) + p(d.getMinutes());
+  },
+
+  /* ── GitHub API ── */
+  async api(path, c, opts){
+    const url = 'https://api.github.com/repos/' + c.owner + '/' + c.repo + '/contents/' + path;
+    const h = {
+      'Authorization': 'Bearer ' + c.tok,
+      'Accept': 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28'
+    };
+    if(opts && opts.body) h['Content-Type'] = 'application/json';
+    return await fetch(url, Object.assign({ headers: h }, opts || {}));
+  },
+  async get(path, c){
+    const r = await this.api(path + '?ref=main&t=' + Date.now(), c);
+    if(r.status === 404) return null;
+    if(r.status === 401) throw new Error('التوكن غير صالح أو منتهي');
+    if(r.status === 403) throw new Error('صلاحية التوكن ناقصة (محتاج Contents: Read and write)');
+    if(!r.ok) throw new Error('خطأ ' + r.status + ' عند قراءة ' + path);
+    return await r.json();
+  },
+  async put(path, c, content, sha, msg){
+    const body = { message: msg, content: this.b64(content), branch: 'main' };
+    if(sha) body.sha = sha;
+    const r = await this.api(path, c, { method:'PUT', body: JSON.stringify(body) });
+    if(!r.ok){
+      let d = ''; try{ d = (await r.json()).message || ''; }catch(e){}
+      throw new Error('فشل رفع ' + path + ' (' + r.status + ') ' + d);
+    }
+    return await r.json();
+  },
+
+  /* ── تنفيذ النشر ── */
+  async run(){
+    const c = this.cfg();
+    if(!c || !c.tok){ showToast('⚠️ مفيش توكن مخزّن'); return; }
+
+    const ui = this.progress();
+    const ver = this.version();
+    try{
+      let st = ui.step('بتأكد من التوكن…');
+      const swFile = await this.get('sw.js', c);
+      if(!swFile) throw new Error('sw.js مش موجود في المستودع');
+      st.ok('التوكن شغّال');
+
+      st = ui.step('بجهّز نسخة التطبيق…');
+      let html = buildUpdatedHTML();
+      html = html.replace(/const APP_BUILD = '[^']*'/, "const APP_BUILD = '" + ver + "'");
+      const cnt = DB.items.length;
+      st.ok(cnt + ' صنف · الإصدار ' + ver);
+
+      st = ui.step('برفع التطبيق…');
+      const idx = await this.get('index.html', c);
+      await this.put('index.html', c, html, idx && idx.sha, 'تحديث البيانات — ' + ver);
+      st.ok('التطبيق اترفع');
+
+      st = ui.step('بحدّث نسخة التخزين…');
+      let sw = this.unb64(swFile.content);
+      if(!/const VERSION = '[^']*'/.test(sw)) throw new Error('مالقيتش VERSION في sw.js');
+      sw = sw.replace(/const VERSION = '[^']*'/, "const VERSION = '" + ver + "'");
+      await this.put('sw.js', c, sw, swFile.sha, 'رفع الإصدار — ' + ver);
+      st.ok('التحديث هيوصل للموظفين');
+
+      ui.done(ver);
+    }catch(err){
+      ui.fail((err && err.message) ? err.message : String(err));
+    }
+  },
+
+  /* ── واجهة التقدّم ── */
+  progress(){
+    let ov = document.getElementById('pubOverlay');
+    if(!ov){
+      ov = document.createElement('div');
+      ov.id = 'pubOverlay'; ov.className = 'pub-ov';
+      ov.innerHTML = '<div class="pub-box"><h3 id="pubTitle">جاري النشر…</h3>'
+                   + '<div id="pubSteps"></div>'
+                   + '<button class="btn btn-outline pub-close" id="pubClose" style="display:none">تم</button></div>';
+      document.body.appendChild(ov);
+      document.getElementById('pubClose').addEventListener('click', ()=> ov.classList.remove('open'));
+    }
+    const box = document.getElementById('pubSteps');
+    box.innerHTML = '';
+    document.getElementById('pubTitle').textContent = 'جاري النشر…';
+    document.getElementById('pubClose').style.display = 'none';
+    ov.classList.add('open');
+
+    return {
+      step(txt){
+        const d = document.createElement('div');
+        d.className = 'pub-step run';
+        d.innerHTML = '<i>•</i><span>' + txt + '</span>';
+        box.appendChild(d);
+        return {
+          ok(t){ d.className='pub-step done'; d.querySelector('i').textContent='✓';
+                 if(t) d.querySelector('span').textContent = t; },
+        };
+      },
+      done(ver){
+        document.getElementById('pubTitle').textContent = '✅ اتنشر';
+        const d = document.createElement('div');
+        d.className = 'pub-note';
+        d.innerHTML = 'الإصدار <b>' + ver + '</b><br>'
+                    + 'GitHub بياخد دقيقة للنشر. الموظفين هيشوفوا إشعار التحديث '
+                    + 'أول ما يفتحوا التطبيق وعندهم نت.';
+        box.appendChild(d);
+        document.getElementById('pubClose').style.display = '';
+      },
+      fail(msg){
+        document.getElementById('pubTitle').textContent = '❌ فشل النشر';
+        const d = document.createElement('div');
+        d.className = 'pub-step err';
+        d.innerHTML = '<i>✕</i><span>' + escapeHtml(msg) + '</span>';
+        box.appendChild(d);
+        document.getElementById('pubClose').style.display = '';
+      }
+    };
+  },
+
+  /* ── إعداد التوكن ── */
+  setup(){
+    const c = this.cfg() || {};
+    let ov = document.getElementById('pubSetup');
+    if(!ov){
+      ov = document.createElement('div');
+      ov.id = 'pubSetup'; ov.className = 'pub-ov';
+      ov.innerHTML = `<div class="pub-box">
+        <h3>ربط النشر</h3>
+        <p class="pub-hint">توكن GitHub بصلاحية <b>Contents: Read and write</b> على مستودع الدليل فقط. بيتخزّن على الجهاز ده بس.</p>
+        <input type="password" id="pubTok" placeholder="github_pat_..." autocomplete="off" spellcheck="false">
+        <div class="pub-row2">
+          <input type="text" id="pubOwner" placeholder="المالك" spellcheck="false">
+          <input type="text" id="pubRepo" placeholder="المستودع" spellcheck="false">
+        </div>
+        <button class="btn btn-primary" id="pubSave" style="width:100%;margin-top:12px">حفظ</button>
+        <button class="btn btn-outline" id="pubForget" style="width:100%;margin-top:8px">إزالة التوكن من الجهاز</button>
+        <button class="btn btn-outline" id="pubCancel" style="width:100%;margin-top:8px">إلغاء</button>
+      </div>`;
+      document.body.appendChild(ov);
+      document.getElementById('pubCancel').addEventListener('click', ()=> ov.classList.remove('open'));
+      document.getElementById('pubSave').addEventListener('click', ()=>{
+        const t = document.getElementById('pubTok').value.trim();
+        if(!t){ showToast('⚠️ حط التوكن'); return; }
+        PUB.save(t, document.getElementById('pubOwner').value, document.getElementById('pubRepo').value);
+        ov.classList.remove('open');
+        showToast('✅ اتربط — زرار النشر ظهر في الإعدادات');
+      });
+      document.getElementById('pubForget').addEventListener('click', ()=>{
+        if(!confirm('هيتشال التوكن من الجهاز ده. متأكد؟')) return;
+        PUB.forget(); ov.classList.remove('open');
+        showToast('🔒 التوكن اتشال');
+      });
+    }
+    document.getElementById('pubTok').value = c.tok || '';
+    document.getElementById('pubOwner').value = c.owner || 'mohamedxxnagy-hub';
+    document.getElementById('pubRepo').value = c.repo || 'pharmacy';
+    ov.classList.add('open');
+  }
+};
 
 /* ═══════════════ الإعدادات / عن التطبيق ═══════════════ */
 function openInfo(kind){
@@ -3162,12 +3409,29 @@ function openInfo(kind){
   const b = document.getElementById('infoContent');
   if(kind==='about'){
     t.textContent = 'عن التطبيق';
+    /* ٥ ضغطات على رقم الإصدار = فتح إعداد النشر (مخفي عن الموظفين) */
+    setTimeout(()=>{
+      const bt = document.getElementById('buildTag');
+      if(!bt || bt._bound) return;
+      bt._bound = true;
+      let hits = 0, t0 = 0;
+      bt.addEventListener('click', ()=>{
+        const now = Date.now();
+        hits = (now - t0 < 1200) ? hits + 1 : 1;
+        t0 = now;
+        if(hits >= 5){
+          hits = 0;
+          closeOverlay(infoOverlay);
+          requireAuth(()=> PUB.setup());
+        }
+      });
+    }, 60);
     b.innerHTML = `<div class="info-block">
       <h4>صيدلية د. ناجي أحمد عبدالحليم</h4>
       <p>دليل داخلي لتنظيم أماكن الأدوية داخل الصيدلية.</p>
       <div class="info-row"><span>عدد الأصناف</span><span>${DB.items.length}</span></div>
       <div class="info-row"><span>عدد الدواليب</span><span>${new Set(DB.items.map(i=>i.cab)).size}</span></div>
-      <div class="info-row"><span>إصدار التطبيق</span><span style="font-family:var(--font-mono);font-size:12.5px">${APP_BUILD}</span></div>
+      <div class="info-row"><span>إصدار التطبيق</span><span id="buildTag" style="font-family:var(--font-mono);font-size:12.5px;cursor:pointer;user-select:none">${APP_BUILD}</span></div>
       <div class="disclaimer" style="margin-top:18px">هذا البرنامج مرجع داخلي لتنظيم أماكن الأدوية داخل الصيدلية، ويُستخدم للمساعدة في الوصول إلى موقع الدواء فقط. لا يُعد بديلاً عن التشخيص الطبي أو الوصفة الطبية أو استشارة الطبيب أو الصيدلي.</div>
     </div>`;
   }else{
@@ -3185,6 +3449,9 @@ function openInfo(kind){
       <h4>البيانات</h4>
       <div class="info-row"><span>حفظ التعديلات داخل الملف</span><span><button class="btn btn-outline" id="setExport" style="padding:5px 14px;font-size:12.5px">تصدير</button></span></div>
       <div class="info-row"><span>تغيير كلمة المرور</span><span><button class="btn btn-outline" id="setPw" style="padding:5px 14px;font-size:12.5px">تغيير</button></span></div>
+      ${PUB.enabled() ? `<h4>النشر</h4>
+      <div class="info-row"><span>نشر التحديث للموظفين</span><span><button class="btn btn-primary" id="setPublish" style="padding:5px 16px;font-size:12.5px">نشر</button></span></div>
+      <div class="info-row"><span>إعدادات النشر</span><span><button class="btn btn-outline" id="setPubCfg" style="padding:5px 14px;font-size:12.5px">تعديل</button></span></div>` : ''}
     </div>`;
     const sn=document.getElementById('setName');
     if(sn) sn.addEventListener('click', ()=>{
@@ -3199,6 +3466,16 @@ function openInfo(kind){
       }, 220);
     });
     const st=document.getElementById('setTheme'); if(st) st.addEventListener('click', toggleTheme);
+
+    /* النشر — محمي بنفس بوابة التعديل */
+    const spb=document.getElementById('setPublish');
+    if(spb) spb.addEventListener('click', ()=> requireAuth(()=>{
+      if(!confirm('هيتم رفع التحديث للموظفين.\n' + DB.items.length + ' صنف.\n\nتمام؟')) return;
+      closeOverlay(infoOverlay);
+      PUB.run();
+    }));
+    const spc=document.getElementById('setPubCfg');
+    if(spc) spc.addEventListener('click', ()=> requireAuth(()=>{ closeOverlay(infoOverlay); PUB.setup(); }));
 
     /* لغة البحث الصوتي — لغة واحدة بس، الخلط بيقلّل الدقة */
     const vAr=document.getElementById('setVoiceAr'), vEn=document.getElementById('setVoiceEn');
