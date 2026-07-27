@@ -3207,7 +3207,7 @@ function closeDrawer(){
 const CODE_REV = 'r18';
 
 /* رقم النشر — بيتغيّر تلقائيًا مع كل نشر (تاريخ ووقت) */
-const APP_BUILD = 'v18 · 2026-07-26';
+const APP_BUILD = 'v20 · 2026-07-27';
 
 /* ═══════════════════════════════════════════════════════════════
    PUB — نشر التحديث مباشرة من التطبيق إلى GitHub
@@ -3934,7 +3934,7 @@ const Voice = {
       }
 
       if(interim.trim() && !finals.length){
-        this._interim = interim.trim();
+        this._interim = this.vtext(interim);
         if(!this._segBeganAt) this._segBeganAt = Date.now();
         this.arm();                            /* الكلام شغّال — مدّد الحارس */
         this.say(this._interim, '', true);
@@ -3966,9 +3966,18 @@ const Voice = {
         const use    = kept.length ? kept : pool;
         if(!use.length){ this.arm(); return; }   /* كله مرفوض — استنى كلام تاني */
 
-        this._segments.push({ t: (use[0] || '').trim(), gap: gap });
+        /* لو التنقية سابت حاجة بلا معنى (كله بلغة تانية مثلًا) نرفض المقطع
+           بدل ما نخزّن قصاصة تخرّب البحث */
+        const segText = this.vtext(this.pickAlt(use));
+        if(!segText || segText.length < 2 || !/[\u0621-\u064A]/.test(segText)){
+          if(this.isEn() ? !/[A-Za-z]/.test(segText) : true){ this.arm(); return; }
+        }
+        this._segments.push({ t: segText, gap: gap });
         this._restarts = 0;      /* مقطع منتج — رصيد إعادة التشغيل يتصفّر */
-        for(const a of use) if(a && !this._alts.includes(a)) this._alts.push(a);
+        for(const a of use){
+          const v = this.vtext(a);
+          if(v && v.length >= 2 && this._alts.indexOf(v) === -1) this._alts.push(v);
+        }
 
         const sofar = this.joinSegments();
         this.say(sofar, '', this._held);
@@ -4043,46 +4052,43 @@ const Voice = {
   PAUSE_MS: 650,
 
   joinSegments(){
-    /* المسافة اتلغت نهائيًا: محرّك الصوت بيقطّع الأسماء عشوائيًا،
-       والفهرس بقى لا يفرّق بين وجود المسافة وعدمها. */
+    /* كلمة واحدة ملزوقة دايمًا — مفيش مسافة بين المقاطع ولا جوّاها.
+       الفهرس بقى لا يفرّق في المسافات، فالشكل ده هو الأدق للمطابقة. */
     let out = '';
-    for(const s of this._segments){
-      const txt = (typeof s === 'string') ? s : s.t;
+    for(const x of this._segments){
+      const txt = (typeof x === 'string') ? x : x.t;
       if(txt) out += txt;
     }
-    return out.trim();
+    return this.vtext(out);
   },
 
-  /* كل الصيغ المحتملة للي اتقال — الترتيب بيختار الأنسب منها */
   candidates(){
-    /* قاعدتان صارمتان:
-       ١) مفيش مسافات إطلاقًا — الفهرس مايفرقش، والمستخدم بيقول كلمة واحدة
-       ٢) اللغة المختارة بس — مفيش خلط عربي/إنجليزي */
-    const strict = [], loose = [];
-    const add = (t, arr, checkLang)=>{
-      let x = String(t || '').trim().replace(/\s+/g, '');
-      if(!x) return;
-      if(checkLang && !this.keepLang(x)) return;
-      if(arr.indexOf(x) === -1) arr.push(x);
-    };
-    const feed = (arr, checkLang)=>{
-      add(this.joinSegments(), arr, checkLang);
-      const parts = this._segments.map(x => (typeof x === 'string' ? x : x.t)).filter(Boolean);
-      if(parts.length > 1){
-        add(parts.join(''), arr, checkLang);
-        for(let i=0;i<parts.length-1;i++) add(parts[i] + parts[i+1], arr, checkLang);
-        for(const p of parts) add(p, arr, checkLang);
-      }
-      for(const a of this._alts) add(a, arr, checkLang);
-      if(this._interim) add(this._interim, arr, checkLang);
+    /* أوسع تغطية ممكنة — كل صيغة محتملة للي اتقال، وكلها منقّاة.
+       الترتيب بعد كده بيختار اللي بيطابق صنف حقيقي. */
+    const out = [];
+    const push = (t)=>{
+      const v = this.vtext(t);
+      if(v && v.length >= 2 && out.indexOf(v) === -1) out.push(v);
     };
 
-    feed(strict, true);
-    if(strict.length) return strict;
+    push(this.joinSegments());                      /* الكلمة كاملة ملزوقة */
 
-    /* المحرّك مارجّعش حاجة باللغة المختارة — نقبل الموجود بدل ما نفشل */
-    feed(loose, false);
-    return loose;
+    const parts = this._segments
+      .map(x => (typeof x === 'string' ? x : x.t))
+      .filter(Boolean);
+
+    if(parts.length > 1){
+      /* كل مقطعين متجاورين — بيلمّ الكلمة اللي اتقسمت على فجوة */
+      for(let a = 0; a < parts.length - 1; a++) push(parts[a] + parts[a + 1]);
+      /* كل ثلاثة متجاورة */
+      for(let a = 0; a < parts.length - 2; a++) push(parts[a] + parts[a+1] + parts[a+2]);
+      /* كل مقطع لوحده */
+      for(const p of parts) push(p);
+    }
+
+    for(const a of this._alts) push(a);              /* بدائل المحرّك */
+    if(this._interim) push(this._interim);
+    return out;
   },
 
   finish(){
@@ -4122,9 +4128,11 @@ const Voice = {
     }
 
     /* اللي بيتكتب في البحث دايمًا بدون مسافات */
-    const typed = String(best.raw || '').replace(/\s+/g, '');
+    /* اللي بيظهر ويتكتب = الشكل الملزوق المنقّى، مهما كانت الصيغة الفائزة */
+    const typed = this.joinSegments() || this.vtext(best.raw);
     this.say(typed, '', false);
     this.apply(typed, false);
+    try{ if(searchInput) searchInput.value = typed; }catch(e){}
 
     const nm = best.item ? (best.item.ar || best.item.en || '') : '';
     if(nm){
@@ -4293,6 +4301,32 @@ const Voice = {
   },
 
   /* ترشيح على اللغة المختارة — يمنع خروج نص مخلوط */
+  /* ═══════ قمع التنقية ═══════
+     كل نص جاي من محرّك الصوت لازم يعدّي من هنا قبل أي استخدام:
+       • أرقام عربية → لاتينية
+       • حروف اللغة التانية تتشال (عربي فقط = مفيش حرف لاتيني)
+       • المسافات والترقيم والتشكيل يتشالوا → كلمة واحدة ملزوقة
+     لازم يتنادى عند التخزين والعرض والمطابقة — مش في الآخر بس. */
+  vtext(t){
+    let x = String(t || '').trim();
+    if(!x) return '';
+    x = x.replace(/[\u0660-\u0669]/g, d => String(d.charCodeAt(0) - 0x0660))
+         .replace(/[\u06F0-\u06F9]/g, d => String(d.charCodeAt(0) - 0x06F0));
+    x = this.isEn() ? x.replace(/[\u0600-\u06FF\u0750-\u077F]/g, '')
+                    : x.replace(/[A-Za-z]/g, '');
+    x = x.replace(/[^\u0621-\u064A0-9A-Za-z]/g, '');
+    return x;
+  },
+
+  /* من بدائل المحرّك: أول واحد باللغة المختارة وله محتوى مفيد */
+  pickAlt(alts){
+    const list = (alts || []).map(a => String(a || '').trim()).filter(Boolean);
+    if(!list.length) return '';
+    for(const a of list) if(this.keepLang(a) && this.vtext(a).length >= 2) return a;
+    for(const a of list) if(this.vtext(a).length >= 2) return a;
+    return list[0];
+  },
+
   keepLang(t){
     const s = String(t || '');
     const ar = (s.match(/[\u0600-\u06FF]/g) || []).length;
