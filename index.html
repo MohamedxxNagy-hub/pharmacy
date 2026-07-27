@@ -3201,13 +3201,7 @@ function closeDrawer(){
 }
 
 /* رقم البناء — يظهر في "عن التطبيق" عشان تتأكد أي نسخة شغّالة */
-/* رقم إصدار الكود — يتغيّر مع كل تعديل برمجي فقط.
-   ⚠️ زرار النشر مابيلمسهوش — عشان تعرف دايمًا أنهي كود شغّال
-   بغض النظر عن عدد مرات النشر. */
-const CODE_REV = 'r18';
-
-/* رقم النشر — بيتغيّر تلقائيًا مع كل نشر (تاريخ ووقت) */
-const APP_BUILD = 'v20 · 2026-07-27';
+const APP_BUILD = 'v15 · 2026-07-26';
 
 /* ═══════════════════════════════════════════════════════════════
    PUB — نشر التحديث مباشرة من التطبيق إلى GitHub
@@ -3566,8 +3560,7 @@ function openInfo(kind){
       <p>دليل داخلي لتنظيم أماكن الأدوية داخل الصيدلية.</p>
       <div class="info-row"><span>عدد الأصناف</span><span>${DB.items.length}</span></div>
       <div class="info-row"><span>عدد الدواليب</span><span>${new Set(DB.items.map(i=>i.cab)).size}</span></div>
-      <div class="info-row"><span>إصدار الكود</span><span id="buildTag" style="font-family:var(--font-mono);font-size:13px;cursor:pointer;user-select:none;font-weight:800;color:var(--brand,#2fa8d5)">${CODE_REV}</span></div>
-      <div class="info-row"><span>آخر نشر</span><span style="font-family:var(--font-mono);font-size:11.5px;opacity:.7">${APP_BUILD}</span></div>
+      <div class="info-row"><span>إصدار التطبيق</span><span id="buildTag" style="font-family:var(--font-mono);font-size:12.5px;cursor:pointer;user-select:none">${APP_BUILD}</span></div>
       <div class="disclaimer" style="margin-top:18px">هذا البرنامج مرجع داخلي لتنظيم أماكن الأدوية داخل الصيدلية، ويُستخدم للمساعدة في الوصول إلى موقع الدواء فقط. لا يُعد بديلاً عن التشخيص الطبي أو الوصفة الطبية أو استشارة الطبيب أو الصيدلي.</div>
     </div>`;
   }else{
@@ -3575,6 +3568,11 @@ function openInfo(kind){
     b.innerHTML = `<div class="info-block">
       <h4>المظهر</h4>
       <div class="info-row"><span>الوضع الليلي</span><span><button class="btn btn-outline" id="setTheme" style="padding:5px 14px;font-size:12.5px">تبديل</button></span></div>
+      <h4>البحث الصوتي</h4>
+      <div class="info-row"><span>اللغة</span><span>
+        <button class="btn btn-outline" id="setVoiceAr" style="padding:5px 13px;font-size:12.5px;margin-inline-end:6px">عربي</button>
+        <button class="btn btn-outline" id="setVoiceEn" style="padding:5px 13px;font-size:12.5px">English</button>
+      </span></div>
       <h4>الحساب</h4>
       <div class="info-row"><span>الاسم المعروض</span><span><button class="btn btn-outline" id="setName" style="padding:5px 14px;font-size:12.5px">تغيير</button></span></div>
       <h4>البيانات</h4>
@@ -3607,6 +3605,20 @@ function openInfo(kind){
     const spc=document.getElementById('setPubCfg');
     if(spc) spc.addEventListener('click', ()=> requireAuth(()=>{ closeOverlay(infoOverlay); PUB.setup(); }));
 
+    /* لغة البحث الصوتي — لغة واحدة بس، الخلط بيقلّل الدقة */
+    const vAr=document.getElementById('setVoiceAr'), vEn=document.getElementById('setVoiceEn');
+    if(vAr && vEn){
+      const syncV=()=>{
+        const en = Voice.isEn();
+        vAr.style.opacity = en ? '.45' : '1';
+        vEn.style.opacity = en ? '1' : '.45';
+        vAr.style.fontWeight = en ? '500' : '800';
+        vEn.style.fontWeight = en ? '800' : '500';
+      };
+      syncV();
+      vAr.addEventListener('click', ()=>{ Voice.setLang('ar'); syncV(); showToast('🎤 لغة البحث الصوتي: عربي'); });
+      vEn.addEventListener('click', ()=>{ Voice.setLang('en'); syncV(); showToast('🎤 Voice language: English'); });
+    }
     const sp=document.getElementById('setPw'); if(sp) sp.addEventListener('click', ()=>{
       closeOverlay(infoOverlay);
       requireAuth(()=>{ ensureChangePwModal();
@@ -3885,7 +3897,7 @@ const Voice = {
 
       /* اللغة مش متاحة على الجهاز → جرّب بدائل بالترتيب */
       if(err === 'language-not-supported' || err === 'bad-grammar'){
-        const chain = ['ar-EG','ar-SA','ar'];
+        const chain = this.isEn() ? ['en-US','en-GB','en'] : ['ar-EG','ar-SA','ar'];
         const i = chain.indexOf(this.lang);
         const next = chain[i + 1] || 'ar';
         if(this._langTries < 2){
@@ -3934,7 +3946,7 @@ const Voice = {
       }
 
       if(interim.trim() && !finals.length){
-        this._interim = this.vtext(interim);
+        this._interim = interim.trim();
         if(!this._segBeganAt) this._segBeganAt = Date.now();
         this.arm();                            /* الكلام شغّال — مدّد الحارس */
         this.say(this._interim, '', true);
@@ -3959,25 +3971,9 @@ const Voice = {
         this._segBeganAt = 0;
         this._lastFinalAt = Date.now();
 
-        /* اللغة المختارة لها الأولوية في اختيار نص المقطع */
-        const decent = finals.filter(t => !this.isFoul(t));
-        const pool   = decent.length ? decent : [];
-        const kept   = pool.filter(t => this.keepLang(t));
-        const use    = kept.length ? kept : pool;
-        if(!use.length){ this.arm(); return; }   /* كله مرفوض — استنى كلام تاني */
-
-        /* لو التنقية سابت حاجة بلا معنى (كله بلغة تانية مثلًا) نرفض المقطع
-           بدل ما نخزّن قصاصة تخرّب البحث */
-        const segText = this.vtext(this.pickAlt(use));
-        if(!segText || segText.length < 2 || !/[\u0621-\u064A]/.test(segText)){
-          if(this.isEn() ? !/[A-Za-z]/.test(segText) : true){ this.arm(); return; }
-        }
-        this._segments.push({ t: segText, gap: gap });
+        this._segments.push({ t: (finals[0] || '').trim(), gap: gap });
         this._restarts = 0;      /* مقطع منتج — رصيد إعادة التشغيل يتصفّر */
-        for(const a of use){
-          const v = this.vtext(a);
-          if(v && v.length >= 2 && this._alts.indexOf(v) === -1) this._alts.push(v);
-        }
+        for(const a of finals) if(a && !this._alts.includes(a)) this._alts.push(a);
 
         const sofar = this.joinSegments();
         this.say(sofar, '', this._held);
@@ -4052,41 +4048,39 @@ const Voice = {
   PAUSE_MS: 650,
 
   joinSegments(){
-    /* كلمة واحدة ملزوقة دايمًا — مفيش مسافة بين المقاطع ولا جوّاها.
-       الفهرس بقى لا يفرّق في المسافات، فالشكل ده هو الأدق للمطابقة. */
+    /* المسافة اتلغت نهائيًا: محرّك الصوت بيقطّع الأسماء عشوائيًا،
+       والفهرس بقى لا يفرّق بين وجود المسافة وعدمها. */
     let out = '';
-    for(const x of this._segments){
-      const txt = (typeof x === 'string') ? x : x.t;
+    for(const s of this._segments){
+      const txt = (typeof s === 'string') ? s : s.t;
       if(txt) out += txt;
     }
-    return this.vtext(out);
+    return out.trim();
   },
 
+  /* كل الصيغ المحتملة للي اتقال — الترتيب بيختار الأنسب منها */
   candidates(){
-    /* أوسع تغطية ممكنة — كل صيغة محتملة للي اتقال، وكلها منقّاة.
-       الترتيب بعد كده بيختار اللي بيطابق صنف حقيقي. */
     const out = [];
-    const push = (t)=>{
-      const v = this.vtext(t);
-      if(v && v.length >= 2 && out.indexOf(v) === -1) out.push(v);
-    };
+    const push = (t)=>{ t = String(t || '').trim(); if(t && out.indexOf(t) === -1) out.push(t); };
 
-    push(this.joinSegments());                      /* الكلمة كاملة ملزوقة */
+    const full = this.joinSegments();             /* حسب مدة الوقفات */
+    push(full);
+    if(full) push(full.replace(/\s+/g, ''));      /* مدموجة تمامًا */
+    if(this._segments.length > 1){
+      const parts = this._segments.map(s => (typeof s === 'string' ? s : s.t)).filter(Boolean);
 
-    const parts = this._segments
-      .map(x => (typeof x === 'string' ? x : x.t))
-      .filter(Boolean);
+      push(parts.join(' ').trim());        /* مفصول بالكامل — احتياطي */
+      push(parts.join(''));                /* ملزوق بالكامل */
 
-    if(parts.length > 1){
-      /* كل مقطعين متجاورين — بيلمّ الكلمة اللي اتقسمت على فجوة */
-      for(let a = 0; a < parts.length - 1; a++) push(parts[a] + parts[a + 1]);
-      /* كل ثلاثة متجاورة */
-      for(let a = 0; a < parts.length - 2; a++) push(parts[a] + parts[a+1] + parts[a+2]);
-      /* كل مقطع لوحده */
+      /* دمج كل مقطعين متجاورين — بيلمّ الكلمة اللي اتقسمت على فجوة */
+      for(let i = 0; i < parts.length - 1; i++){
+        push(parts[i] + parts[i + 1]);
+        push(parts[i] + ' ' + parts[i + 1]);
+      }
+      /* وكل مقطع لوحده */
       for(const p of parts) push(p);
     }
-
-    for(const a of this._alts) push(a);              /* بدائل المحرّك */
+    for(const a of this._alts) push(a);            /* بدائل المحرّك */
     if(this._interim) push(this._interim);
     return out;
   },
@@ -4106,8 +4100,7 @@ const Voice = {
     /* ترشيح الضوضاء: نتائج قصيرة جدًا أو بلا حروف عربية/لاتينية = ضجيج */
     let clean = (finals || [])
       .map(t => String(t || '').trim())
-      .filter(t => t.length >= 2 && /[\u0600-\u06FFa-zA-Z]/.test(t))
-      .filter(t => !this.isFoul(t));
+      .filter(t => t.length >= 2 && /[\u0600-\u06FFa-zA-Z]/.test(t));
 
     /* اللغة المختارة لها الأولوية */
     const inLang = clean.filter(t => this.keepLang(t));
@@ -4119,20 +4112,15 @@ const Voice = {
     const best = ranked[0];
 
     if(!best || best.score <= 0){
-      /* مفيش صنف مطابق — مانكتبش أي حاجة في البحث.
-         ده بيمنع اللي المحرّك بيسمعه غلط (بما فيه أي لفظ خارج) إنه يظهر. */
-      this.say('ملقيتش صنف مطابق', 'قول اسم الدوا لوحده وجرّب تاني', false);
-      const opts = ranked.filter(r => r.score > 0).slice(0, 3);
-      if(opts.length) this.alts(opts);
+      const heard = (finals[0] || '').trim();
+      this.say(heard || '—', 'ملقيتش صنف مطابق — جرّب تنطق الاسم لوحده', false);
+      if(heard) this.apply(heard, false);
+      this.alts(ranked.slice(1, 4));
       return;
     }
 
-    /* اللي بيتكتب في البحث دايمًا بدون مسافات */
-    /* اللي بيظهر ويتكتب = الشكل الملزوق المنقّى، مهما كانت الصيغة الفائزة */
-    const typed = this.joinSegments() || this.vtext(best.raw);
-    this.say(typed, '', false);
-    this.apply(typed, false);
-    try{ if(searchInput) searchInput.value = typed; }catch(e){}
+    this.say(best.raw, '', false);
+    this.apply(best.raw, false);
 
     const nm = best.item ? (best.item.ar || best.item.en || '') : '';
     if(nm){
@@ -4262,71 +4250,19 @@ const Voice = {
   },
 
   /* لغة واحدة فقط — الخلط بيقلّل دقة التعرّف بشكل ملحوظ */
-  /* اللغة مثبّتة على العربية — مفيش خيار إنجليزي */
-  loadLang(){ return 'ar-EG'; },
-  setLang(){ this.lang = 'ar-EG'; if(this.rec) this.rec.lang = 'ar-EG'; },
-  isEn(){ return false; },      /* عربي دايمًا */
-
-  /* شبكة أمان: ألفاظ خارجة ممكن المحرّك يسمعها غلط.
-     الحماية الأساسية إن التطبيق مايكتبش غير أسماء أدوية مطابقة،
-     ودي طبقة تانية تمنع ظهورها حتى في لوحة "سمعت". */
-  /* ألفاظ ممنوعة — المحرّك ممكن يسمعها غلط.
-     ⚠️ المطابقة على الكلمة كاملة مش جزء منها، لأن:
-        "نيك" جوّه نيكوتين · "كس" جوّه اكسترا وأوكسيد · "زب" جوّه زبادي */
-  FOUL: ['نيك','نياك','منيك','منيوك','متناك','متناكه','نيكني','ينيك',
-         'زب','زبي','زبر','زبرك','زبري','زبك',
-         'كس','كسي','كسك','كسم','كسمك',
-         'خول','خولات','عرص','عرصه','شرموط','شرموطه','قحبه','لبوه','طيز','خرا',
-         'sex','fuck','shit','porn'],
-
-  _fnorm(t){
-    return String(t || '').toLowerCase()
-      .replace(/[\u064B-\u0652\u0640]/g, '')
-      .replace(/[\u0623\u0625\u0622]/g, '\u0627')
-      .replace(/\u0649/g, '\u064A')
-      .replace(/\u0629/g, '\u0647');
+  loadLang(){
+    try{ if(localStorage.getItem('pharmacy_voice_lang') === 'en') return 'en-US'; }catch(e){}
+    return 'ar-EG';
   },
-
-  isFoul(t){
-    const x = this._fnorm(t);
-    if(!x) return false;
-    if(!this._foulSet) this._foulSet = new Set(this.FOUL.map(w => this._fnorm(w)));
-    const words = x.split(/[^\u0600-\u06FFa-z]+/).filter(Boolean);
-    for(const w of words){
-      if(this._foulSet.has(w)) return true;
-      if(w.length > 2 && w.slice(0,2) === 'ال' && this._foulSet.has(w.slice(2))) return true;
-      if(w.length > 1 && w.slice(0,1) === 'و'  && this._foulSet.has(w.slice(1))) return true;
-    }
-    return false;
+  setLang(code){
+    this.lang = (code === 'en') ? 'en-US' : 'ar-EG';
+    this._langTries = 0;
+    try{ localStorage.setItem('pharmacy_voice_lang', code === 'en' ? 'en' : 'ar'); }catch(e){}
+    if(this.rec) this.rec.lang = this.lang;
   },
+  isEn(){ return this.lang === 'en-US'; },
 
   /* ترشيح على اللغة المختارة — يمنع خروج نص مخلوط */
-  /* ═══════ قمع التنقية ═══════
-     كل نص جاي من محرّك الصوت لازم يعدّي من هنا قبل أي استخدام:
-       • أرقام عربية → لاتينية
-       • حروف اللغة التانية تتشال (عربي فقط = مفيش حرف لاتيني)
-       • المسافات والترقيم والتشكيل يتشالوا → كلمة واحدة ملزوقة
-     لازم يتنادى عند التخزين والعرض والمطابقة — مش في الآخر بس. */
-  vtext(t){
-    let x = String(t || '').trim();
-    if(!x) return '';
-    x = x.replace(/[\u0660-\u0669]/g, d => String(d.charCodeAt(0) - 0x0660))
-         .replace(/[\u06F0-\u06F9]/g, d => String(d.charCodeAt(0) - 0x06F0));
-    x = this.isEn() ? x.replace(/[\u0600-\u06FF\u0750-\u077F]/g, '')
-                    : x.replace(/[A-Za-z]/g, '');
-    x = x.replace(/[^\u0621-\u064A0-9A-Za-z]/g, '');
-    return x;
-  },
-
-  /* من بدائل المحرّك: أول واحد باللغة المختارة وله محتوى مفيد */
-  pickAlt(alts){
-    const list = (alts || []).map(a => String(a || '').trim()).filter(Boolean);
-    if(!list.length) return '';
-    for(const a of list) if(this.keepLang(a) && this.vtext(a).length >= 2) return a;
-    for(const a of list) if(this.vtext(a).length >= 2) return a;
-    return list[0];
-  },
-
   keepLang(t){
     const s = String(t || '');
     const ar = (s.match(/[\u0600-\u06FF]/g) || []).length;
@@ -4356,14 +4292,12 @@ const Voice = {
         <span class="vp-dot" id="vpDot"></span>
         <span class="vp-bars" id="vpBars"><i></i><i></i><i></i><i></i></span>
         <span class="vp-state" id="vpState">بيسمعك…</span>
-        <span style="font-family:var(--font-mono);font-size:9px;opacity:.45" id="vpVer"></span>
         <button class="vp-x" id="vpX" type="button" aria-label="إغلاق">✕</button>
       </div>
       <div class="vp-text dim" id="vpText">سيبك ضاغط… وقول اسم الدوا متصل</div>
       <div class="vp-hit" id="vpHit"></div>
       <div class="vp-alts" id="vpAlts"></div>`;
     document.body.appendChild(p);
-    try{ document.getElementById('vpVer').textContent = CODE_REV; }catch(e){}
     document.getElementById('vpX').addEventListener('click', ()=>{ this.stop(); this.panel(false); });
     return p;
   },
